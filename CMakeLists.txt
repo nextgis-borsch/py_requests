@@ -213,9 +213,9 @@ except ImportError:
     endif()
 else()
     macro(install_win_py ver)
-        set(BINDING_PATH ${CMAKE_CURRENT_BINARY_DIR}/${PYTHON${ver}_VERSION_MAJOR}.${PYTHON${ver}_VERSION_MINOR}/site-packages)
+        set(BINDING_PATH ${CMAKE_CURRENT_BINARY_DIR}/${OUT_DIR_NAME}/requests)
         install(DIRECTORY "${BINDING_PATH}/"
-                DESTINATION ${INSTALL_LIB_DIR}/Python${PYTHON${ver}_VERSION_MAJOR}${PYTHON${ver}_VERSION_MINOR}/site-packages
+                DESTINATION ${INSTALL_LIB_DIR}/Python${PYTHON${ver}_VERSION_MAJOR}${PYTHON${ver}_VERSION_MINOR}/site-packages/requests
                 COMPONENT libraries)
     endmacro()
 
