@@ -212,11 +212,13 @@ except ImportError:
         install_py(3)
     endif()
 else()
+    set(SETUP_OPTS "${SETUP_OPTS} --single-version-externally-managed  --record=rekord.txt --prefix=${CMAKE_INSTALL_PREFIX}")
+    string(REPLACE "/" "\\\\" SETUP_OPTS ${SETUP_OPTS})
     macro(install_win_py ver)
-        set(BINDING_PATH ${CMAKE_CURRENT_BINARY_DIR}/${OUT_DIR_NAME}/requests)
-        install(DIRECTORY "${BINDING_PATH}/"
-                DESTINATION ${INSTALL_LIB_DIR}/Python${PYTHON${ver}_VERSION_MAJOR}${PYTHON${ver}_VERSION_MINOR}/site-packages/requests
-                COMPONENT libraries)
+        install(CODE "execute_process(
+            COMMAND ${PYTHON${ver}_EXECUTABLE} setup.py install ${SETUP_OPTS}
+            WORKING_DIRECTORY  ${CMAKE_CURRENT_BINARY_DIR}/${OUT_DIR_NAME}
+            )")
     endmacro()
 
     if(PYTHON2_EXECUTABLE)
