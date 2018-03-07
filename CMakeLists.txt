@@ -3,7 +3,7 @@
 # Purpose:  CMake build scripts
 # Author:   Dmitry Baryshnikov, dmitry.baryshnikov@nexgis.com
 ################################################################################
-# Copyright (C) 2017, NextGIS <info@nextgis.com>
+# Copyright (C) 2017-2018, NextGIS <info@nextgis.com>
 #
 # Permission is hereby granted, free of charge, to any person obtaining a
 # copy of this software and associated documentation files (the "Software"),
@@ -27,22 +27,23 @@ cmake_minimum_required(VERSION 2.8.12 FATAL_ERROR)
 
 project(requests)
 
+if(NOT DEFINED PACKAGE_VENDOR)
+    set(PACKAGE_VENDOR NextGIS)
+endif()
+
+if(NOT DEFINED PACKAGE_BUGREPORT)
+    set(PACKAGE_BUGREPORT info@nextgis.com)
+endif()
+
 # some init settings
 set(CMAKE_COLOR_MAKEFILE ON)
 # set path to additional CMake modules
 set(CMAKE_MODULE_PATH ${CMAKE_SOURCE_DIR}/cmake ${CMAKE_MODULE_PATH})
 
-if(OSX_FRAMEWORK AND (BUILD_SHARED_LIBS OR BUILD_STATIC_LIBS))
-  message(FATAL_ERROR "Only OSX_FRAMEWORK key or any or both BUILD_SHARED_LIBS
-                       and BUILD_STATIC_LIBS keys are permitted")
-endif()
-
 if(OSX_FRAMEWORK)
-  set(INSTALL_LIB_DIR "${CMAKE_INSTALL_PREFIX}/Library" CACHE INTERNAL "Installation directory for libraries" FORCE)
-  set(CMAKE_MACOSX_RPATH ON)
+  set(INSTALL_LIB_DIR "Library" CACHE INTERNAL "Installation directory for libraries" FORCE)
 else()
-    include(GNUInstallDirs)
-    set(INSTALL_LIB_DIR ${CMAKE_INSTALL_FULL_LIBDIR} CACHE INTERNAL "Installation directory for libraries" FORCE)
+    set(INSTALL_LIB_DIR "." CACHE INTERNAL "Installation directory for libraries" FORCE)
 endif()
 
 if(NOT WITH_PYTHON2 AND NOT WITH_PYTHON3)
@@ -92,18 +93,49 @@ endif()
 
 file(DOWNLOAD "https://pypi.python.org/pypi/${PROJECT_NAME}/json" "${CMAKE_CURRENT_BINARY_DIR}/meta.json")
 
+include(util)
+get_compiler_version(COMPILER)
 # get version and download url
 execute_process(COMMAND ${PYTHON_EXECUTABLE}
-    ${CMAKE_SOURCE_DIR}/cmake/pypi_process.py ${PLUGIN} ${CMAKE_CURRENT_BINARY_DIR}/meta.json
+    ${CMAKE_SOURCE_DIR}/cmake/pypi_process.py ${PLUGIN} ${CMAKE_CURRENT_BINARY_DIR}/meta.json ${COMPILER}
     OUTPUT_VARIABLE PACKAGE_DETAILS
     OUTPUT_STRIP_TRAILING_WHITESPACE
 )
 
 list(GET PACKAGE_DETAILS 0 DOWNLOAD_URL)
 list(GET PACKAGE_DETAILS 1 VERSION)
+list(GET PACKAGE_DETAILS 2 PROJECT_CPACK_FILENAME)
 
-include(util)
 report_version(${PROJECT_NAME} ${VERSION})
+
+if(OSX_FRAMEWORK)
+    set(FLAGS "ARCHFLAGS=-arch x86_64")
+elseif(WIN32)
+    if(MSVC_VERSION EQUAL 1400)
+        set(FLAGS ${FLAGS} "VS90COMNTOOLS=$ENV{VS80COMNTOOLS}")
+    elseif(MSVC_VERSION EQUAL 1500)
+        set(FLAGS ${FLAGS} "VS90COMNTOOLS=$ENV{VS90COMNTOOLS}")
+    elseif(MSVC_VERSION EQUAL 1600)
+        set(FLAGS ${FLAGS} "VS90COMNTOOLS=$ENV{VS100COMNTOOLS}")
+    elseif(MSVC_VERSION EQUAL 1700)
+        set(FLAGS ${FLAGS} "VS90COMNTOOLS=$ENV{VS110COMNTOOLS}")
+    elseif(MSVC_VERSION EQUAL 1800)
+        set(FLAGS ${FLAGS} "VS90COMNTOOLS=$ENV{VS120COMNTOOLS}")
+    elseif(MSVC_VERSION EQUAL 1900)
+        set(FLAGS ${FLAGS} "VS90COMNTOOLS=$ENV{VS140COMNTOOLS}")
+    else() # 1912 - Need to copy vcvarsall.bat from VC\Auxiliary\Build to VC
+        get_filename_component(_COMNTOOLS_PREFIX "${CMAKE_C_COMPILER}" PATH)
+        get_filename_component(_COMNTOOLS_PREFIX "${_COMNTOOLS_PREFIX}" PATH)
+        get_filename_component(_COMNTOOLS_PREFIX "${_COMNTOOLS_PREFIX}" PATH)
+        get_filename_component(_COMNTOOLS_PREFIX "${_COMNTOOLS_PREFIX}" PATH)
+        get_filename_component(_COMNTOOLS_PREFIX "${_COMNTOOLS_PREFIX}" PATH)
+        get_filename_component(_COMNTOOLS_PREFIX "${_COMNTOOLS_PREFIX}" PATH)
+        # get_filename_component(_COMNTOOLS_PREFIX "${_COMNTOOLS_PREFIX}" PATH)
+        set(FLAGS ${FLAGS} "VS90COMNTOOLS=${_COMNTOOLS_PREFIX}")
+    endif()
+endif()
+
+set(BUILD_INCLUDES ${BUILD_INCLUDES} -q)
 
 # Download tarbal
 set(OUT_DIR_NAME ${PROJECT_NAME}-${VERSION})
@@ -123,44 +155,26 @@ if(NOT EXISTS ${CMAKE_CURRENT_BINARY_DIR}/${OUT_DIR_NAME})
 endif()
 
 macro(build_py ver)
+    status_message("Configuring ...")
+    execute_process(COMMAND ${CMAKE_COMMAND} -E env "${FLAGS}"
+        ${PYTHON${ver}_EXECUTABLE} setup.py build ${BUILD_INCLUDES}
+        WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/${OUT_DIR_NAME}
+        OUTPUT_QUIET ERROR_QUIET
+    )
+
     add_custom_target(build_py${ver} ALL
-        COMMAND ${PYTHON${ver}_EXECUTABLE} ${CMAKE_CURRENT_BINARY_DIR}/${OUT_DIR_NAME}/setup.py build_ext -b ${CMAKE_CURRENT_BINARY_DIR}/${PYTHON${ver}_VERSION_MAJOR}.${PYTHON${ver}_VERSION_MINOR}/site-packages
+        COMMAND ${CMAKE_COMMAND} -E env "${FLAGS}"
+        ${PYTHON${ver}_EXECUTABLE} setup.py build_ext ${BUILD_INCLUDES}
         WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/${OUT_DIR_NAME}
         VERBATIM
     )
-endmacro()
 
-# python setup.py install --prefix=/usr/local
-status_message("Install")
-
-if(PYTHON2_EXECUTABLE)
-    build_py(2)
-endif()
-
-if(PYTHON3_EXECUTABLE)
-    build_py(3)
-endif()
-
-if(NOT SKIP_INSTALL_LIBRARIES AND NOT SKIP_INSTALL_ALL )
-if (${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
-    set(SETUP_OPTS "${SETUP_OPTS} --single-version-externally-managed --record=rekord.txt --prefix=${CMAKE_INSTALL_PREFIX}")
-
-    macro(install_mac_py ver)
-        install(CODE "execute_process(
-            COMMAND ${PYTHON${ver}_EXECUTABLE} ${CMAKE_CURRENT_BINARY_DIR}/${OUT_DIR_NAME}/setup.py install ${SETUP_OPTS}
-            WORKING_DIRECTORY  ${CMAKE_CURRENT_BINARY_DIR}/${OUT_DIR_NAME}
-            )")
-    endmacro()
-
-    if(PYTHON2_EXECUTABLE)
-        install_mac_py(2)
-    endif()
-
-    if(PYTHON3_EXECUTABLE)
-        install_mac_py(3)
-    endif()
-elseif(UNIX)
-    macro(install_py ver)
+    if(${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
+        set(SETUP_OPTS ${SETUP_OPTS} --no-compile --single-version-externally-managed --record=rekord.txt --prefix=${CMAKE_CURRENT_BINARY_DIR}/inst_tmp)
+    elseif(WIN32)
+        string(REPLACE "/" "\\\\" TMP_PATH "${CMAKE_CURRENT_BINARY_DIR}/inst_tmp")
+        set(SETUP_OPTS ${SETUP_OPTS} --no-compile --single-version-externally-managed --record=rekord.txt --prefix=${TMP_PATH})
+    else()
         execute_process ( COMMAND ${PYTHON${ver}_EXECUTABLE} -c "from distutils.sysconfig import get_python_lib; print(get_python_lib())" OUTPUT_VARIABLE PY_SITE_PACKAGES OUTPUT_STRIP_TRAILING_WHITESPACE)
 
         set(TEST_CMD "try:
@@ -170,11 +184,8 @@ except ImportError:
     pass")
 
         execute_process ( COMMAND ${PYTHON${ver}_EXECUTABLE} -c ${TEST_CMD} OUTPUT_VARIABLE PY_HAVE_SETUPTOOLS OUTPUT_STRIP_TRAILING_WHITESPACE)
-
-        set(SETUP_OPTS)
-
         if(PY_HAVE_SETUPTOOLS)
-            set(SETUP_OPTS "${SETUP_OPTS} --single-version-externally-managed --record=rekord.txt")
+            set(SETUP_OPTS "${SETUP_OPTS} --no-compile --single-version-externally-managed --record=rekord.txt")
         endif()
 
         string( LENGTH "$ENV{DESTDIR}" DESTDIRLEN )
@@ -192,41 +203,45 @@ except ImportError:
 
         # TODO: do we need --install-lib=$(PYTHON_INSTALL_LIB) ?
 
-        set(SETUP_OPTS "${SETUP_OPTS} --prefix=${CMAKE_INSTALL_PREFIX}")
+        set(SETUP_OPTS "${SETUP_OPTS} --prefix=${CMAKE_CURRENT_BINARY_DIR}/inst_tmp")
 
-        if(NOT SUPPRESS_VERBOSE_OUTPUT)
-            message(STATUS "setup tools options: ${SETUP_OPTS}")
-        endif()
-
-        install(CODE "execute_process(
-                COMMAND ${PYTHON${ver}_EXECUTABLE} ${CMAKE_CURRENT_BINARY_DIR}/setup.py install ${SETUP_OPTS}
-                WORKING_DIRECTORY  ${CMAKE_CURRENT_BINARY_DIR}
-                )")
-    endmacro()
-
-    if(PYTHON2_EXECUTABLE)
-        install_py(2)
     endif()
+    add_custom_target(install_py${ver} ALL
+        COMMAND ${CMAKE_COMMAND} -E env "${FLAGS}"
+        ${PYTHON${ver}_EXECUTABLE} setup.py install ${SETUP_OPTS}
+        DEPENDS build_py${ver}
+        WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/${OUT_DIR_NAME}
+        VERBATIM
+    )
+endmacro()
 
-    if(PYTHON3_EXECUTABLE)
-        install_py(3)
-    endif()
-else()
-    set(SETUP_OPTS "${SETUP_OPTS} --single-version-externally-managed  --record=rekord.txt --prefix=${CMAKE_INSTALL_PREFIX}")
-    string(REPLACE "/" "\\\\" SETUP_OPTS ${SETUP_OPTS})
-    macro(install_win_py ver)
-        install(CODE "execute_process(
-            COMMAND ${PYTHON${ver}_EXECUTABLE} setup.py install ${SETUP_OPTS}
-            WORKING_DIRECTORY  ${CMAKE_CURRENT_BINARY_DIR}/${OUT_DIR_NAME}
-            )")
-    endmacro()
 
-    if(PYTHON2_EXECUTABLE)
-        install_win_py(2)
-    endif()
-
-    if(PYTHON3_EXECUTABLE)
-        install_win_py(3)
-    endif()
+if(PYTHON2_EXECUTABLE)
+    build_py(2)
 endif()
+
+if(PYTHON3_EXECUTABLE)
+    build_py(3)
 endif()
+
+if(NOT SKIP_INSTALL_LIBRARIES AND NOT SKIP_INSTALL_ALL )
+    install(DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}/inst_tmp/ DESTINATION ${INSTALL_LIB_DIR})
+endif()
+
+# Archiving ====================================================================
+set(PACKAGE_NAME ${PROJECT_NAME})
+
+set(CPACK_PACKAGE_NAME "${PACKAGE_NAME}")
+set(CPACK_PACKAGE_VENDOR "${PACKAGE_VENDOR}")
+set(CPACK_PACKAGE_VERSION "${VERSION}")
+set(CPACK_PACKAGE_DESCRIPTION_SUMMARY "${PACKAGE_NAME} Installation")
+set(CPACK_PACKAGE_RELOCATABLE TRUE)
+set(CPACK_ARCHIVE_COMPONENT_INSTALL ON)
+set(CPACK_GENERATOR "ZIP")
+set(CPACK_MONOLITHIC_INSTALL ON)
+set(CPACK_STRIP_FILES TRUE)
+
+# Get cpack zip archive name
+set(CPACK_PACKAGE_FILE_NAME ${PROJECT_CPACK_FILENAME})
+
+include(CPack)
