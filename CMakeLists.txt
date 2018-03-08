@@ -133,6 +133,8 @@ elseif(WIN32)
         # get_filename_component(_COMNTOOLS_PREFIX "${_COMNTOOLS_PREFIX}" PATH)
         set(FLAGS ${FLAGS} "VS90COMNTOOLS=${_COMNTOOLS_PREFIX}")
     endif()
+else()
+    set(FLAGS "NextGIS=TRUE")
 endif()
 
 set(BUILD_INCLUDES ${BUILD_INCLUDES} -q)
