@@ -3,7 +3,7 @@
 # Purpose:  CMake build scripts
 # Author:   Dmitry Baryshnikov, dmitry.baryshnikov@nexgis.com
 ################################################################################
-# Copyright (C) 2017-2018, NextGIS <info@nextgis.com>
+# Copyright (C) 2017-2023, NextGIS <info@nextgis.com>
 #
 # Permission is hereby granted, free of charge, to any person obtaining a
 # copy of this software and associated documentation files (the "Software"),
@@ -47,7 +47,7 @@ else()
 endif()
 
 if(NOT WITH_PYTHON2 AND NOT WITH_PYTHON3)
-    set(WITH_PYTHON2 ON)
+    set(WITH_PYTHON3 ON)
 endif()
 
 if(WITH_PYTHON2)
